@@ -2,9 +2,7 @@ import arcpy
 
 arcpy.env.overwriteOutput = True
 
-# ───────────────────────────────────────────────
 # SCRIPT TOOL PARAMETERS
-# ───────────────────────────────────────────────
 gdb = arcpy.GetParameterAsText(0)                 # Workspace GDB
 roster_fc = arcpy.GetParameterAsText(1)           # Roster feature class
 countries_fc = arcpy.GetParameterAsText(2)        # Countries feature class
@@ -18,9 +16,7 @@ target_positions = arcpy.GetParameterAsText(9).split(";")  # Multivalue position
 
 arcpy.env.workspace = gdb
 
-# ───────────────────────────────────────────────
 # HEIGHT CONVERSION FUNCTION
-# ───────────────────────────────────────────────
 def height_to_inches(h):
     if not h:
         return None
@@ -30,40 +26,30 @@ def height_to_inches(h):
     inches = int(parts[1].strip()) if parts[1].strip() else 0
     return feet * 12 + inches
 
-# ───────────────────────────────────────────────
 # FIND MOST RECENT SEASON
-# ───────────────────────────────────────────────
 seasons = [row[0] for row in arcpy.da.SearchCursor(roster_fc, season_field)]
 latest_season = max(seasons)
 
-# ───────────────────────────────────────────────
 # SELECT TARGET COUNTRY
-# ───────────────────────────────────────────────
 country_lyr = "country_lyr"
 arcpy.management.MakeFeatureLayer(
     countries_fc, country_lyr,
     f"{country_field} = '{target_country}'"
 )
 
-# ───────────────────────────────────────────────
 # SELECT ROSTER FOR LATEST SEASON
-# ───────────────────────────────────────────────
 roster_lyr = "roster_lyr"
 arcpy.management.MakeFeatureLayer(
     roster_fc, roster_lyr,
     f"{season_field} = {latest_season}"
 )
 
-# ───────────────────────────────────────────────
 # SPATIAL SELECTION: PLAYERS IN TARGET COUNTRY
-# ───────────────────────────────────────────────
 arcpy.management.SelectLayerByLocation(
     roster_lyr, "INTERSECT", country_lyr
 )
 
-# ───────────────────────────────────────────────
 # PROCESS EACH POSITION
-# ───────────────────────────────────────────────
 for pos in target_positions:
     pos_lyr = f"pos_{pos}_lyr"
     arcpy.management.MakeFeatureLayer(
@@ -97,7 +83,5 @@ for pos in target_positions:
             row[2], row[3] = h_cm, w_kg
             cursor.updateRow(row)
 
-# ───────────────────────────────────────────────
 # SUCCESS MESSAGE
-# ───────────────────────────────────────────────
 arcpy.AddMessage(f"Processing complete for {target_country} and positions: {', '.join(target_positions)}.")
