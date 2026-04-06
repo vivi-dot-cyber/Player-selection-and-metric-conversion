@@ -1,0 +1,103 @@
+import arcpy
+
+arcpy.env.overwriteOutput = True
+
+# ───────────────────────────────────────────────
+# SCRIPT TOOL PARAMETERS
+# ───────────────────────────────────────────────
+gdb = arcpy.GetParameterAsText(0)                 # Workspace GDB
+roster_fc = arcpy.GetParameterAsText(1)           # Roster feature class
+countries_fc = arcpy.GetParameterAsText(2)        # Countries feature class
+country_field = arcpy.GetParameterAsText(3)       # Country name field
+season_field = arcpy.GetParameterAsText(4)        # Season field
+position_field = arcpy.GetParameterAsText(5)      # Position field
+height_field = arcpy.GetParameterAsText(6)        # Height field
+weight_field = arcpy.GetParameterAsText(7)        # Weight field
+target_country = arcpy.GetParameterAsText(8)      # Country to extract
+target_positions = arcpy.GetParameterAsText(9).split(";")  # Multivalue positions
+
+arcpy.env.workspace = gdb
+
+# ───────────────────────────────────────────────
+# HEIGHT CONVERSION FUNCTION
+# ───────────────────────────────────────────────
+def height_to_inches(h):
+    if not h:
+        return None
+    h = h.replace('"', "")
+    parts = h.split("'")
+    feet = int(parts[0].strip())
+    inches = int(parts[1].strip()) if parts[1].strip() else 0
+    return feet * 12 + inches
+
+# ───────────────────────────────────────────────
+# FIND MOST RECENT SEASON
+# ───────────────────────────────────────────────
+seasons = [row[0] for row in arcpy.da.SearchCursor(roster_fc, season_field)]
+latest_season = max(seasons)
+
+# ───────────────────────────────────────────────
+# SELECT TARGET COUNTRY
+# ───────────────────────────────────────────────
+country_lyr = "country_lyr"
+arcpy.management.MakeFeatureLayer(
+    countries_fc, country_lyr,
+    f"{country_field} = '{target_country}'"
+)
+
+# ───────────────────────────────────────────────
+# SELECT ROSTER FOR LATEST SEASON
+# ───────────────────────────────────────────────
+roster_lyr = "roster_lyr"
+arcpy.management.MakeFeatureLayer(
+    roster_fc, roster_lyr,
+    f"{season_field} = {latest_season}"
+)
+
+# ───────────────────────────────────────────────
+# SPATIAL SELECTION: PLAYERS IN TARGET COUNTRY
+# ───────────────────────────────────────────────
+arcpy.management.SelectLayerByLocation(
+    roster_lyr, "INTERSECT", country_lyr
+)
+
+# ───────────────────────────────────────────────
+# PROCESS EACH POSITION
+# ───────────────────────────────────────────────
+for pos in target_positions:
+    pos_lyr = f"pos_{pos}_lyr"
+    arcpy.management.MakeFeatureLayer(
+        roster_lyr, pos_lyr,
+        f"{position_field} = '{pos}'"
+    )
+
+    out_fc = f"{target_country}_{pos}"
+    arcpy.management.CopyFeatures(pos_lyr, out_fc)
+
+    # Add metric fields
+    arcpy.management.AddField(out_fc, "height_cm", "DOUBLE")
+    arcpy.management.AddField(out_fc, "weight_kg", "DOUBLE")
+
+    # Convert height + weight
+    with arcpy.da.UpdateCursor(
+        out_fc, [height_field, weight_field, "height_cm", "weight_kg"]
+    ) as cursor:
+        for row in cursor:
+            h_txt, w_lb = row[0], row[1]
+            h_cm, w_kg = None, None
+
+            if h_txt:
+                inches = height_to_inches(h_txt)
+                if inches is not None:
+                    h_cm = inches * 2.54
+
+            if w_lb is not None:
+                w_kg = float(w_lb) * 0.453592
+
+            row[2], row[3] = h_cm, w_kg
+            cursor.updateRow(row)
+
+# ───────────────────────────────────────────────
+# SUCCESS MESSAGE
+# ───────────────────────────────────────────────
+arcpy.AddMessage(f"Processing complete for {target_country} and positions: {', '.join(target_positions)}.")
